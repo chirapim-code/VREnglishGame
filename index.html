@@ -28,7 +28,7 @@
         #hand-canvas {
             position: absolute; top: 0; left: 0;
             width: 100%; height: 100%; transform: scaleX(-1);
-            display: none; /* ซ่อนเส้นโครงกระดูกนิ้วเพื่อไม่ให้เกะกะสายตาเด็ก */
+            display: none;
         }
 
         /* ส่วนติดต่อผู้ใช้งาน (UI) */
@@ -38,7 +38,7 @@
             z-index: 10;
             display: flex; justify-content: center; align-items: center;
             box-sizing: border-box; padding: 20px;
-            pointer-events: none; /* ยอมให้จุดแดงและ AI ทะลุลงไปตรวจจับได้ */
+            pointer-events: none;
         }
 
         .game-container {
@@ -48,7 +48,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
             width: 100%; max-width: 650px; text-align: center;
             border: 4px solid #38bdf8;
-            pointer-events: auto; /* เปิดให้ปุ่มและคำศัพท์กลับมาสัมผัสได้ปกติ */
+            pointer-events: auto;
         }
         
         /* จุดแดงตรวจจับที่ปลายนิ้วชี้ */
@@ -174,7 +174,6 @@
         initCamera();
     };
 
-    // ปรับโครงสร้างเปิดกล้องพื้นฐานให้พร้อมส่งเข้า MediaPipe
     async function initCamera() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -190,7 +189,6 @@
         }
     }
 
-    // แก้ไขชุดลูป AI: ใช้การควบคุมเฟรมของ MediaPipe ตัวตรงโดยไม่ใช้คลาสเสริมที่ตีกันเอง
     function setupMediaPipe() {
         if (typeof Hands === 'undefined') return;
 
@@ -207,14 +205,11 @@
 
         hands.onResults(onHandResults);
 
-        // ดึงลูปเฟรมวิดีโอแบบเสถียร
         async function sendFrame() {
             if (!videoElement.paused && !videoElement.ended) {
                 try {
                     await hands.send({ image: videoElement });
-                } catch (e) {
-                    console.log("AI frame skip");
-                }
+                } catch (e) {}
             }
             requestAnimationFrame(sendFrame);
         }
@@ -227,9 +222,8 @@
     function onHandResults(results) {
         if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
             const landmarks = results.multiHandLandmarks[0];
-            const indexTip = landmarks[8]; // ปลายนิ้วชี้
+            const indexTip = landmarks[8]; 
 
-            // แก้ไขปัญหาการ Mirror พิกัดนิ้วชี้: คำนวณแบบกลับด้านกระจกเงาให้สอดคล้องกับภาพหน้าจอ
             const screenX = (1 - indexTip.x) * window.innerWidth;
             const screenY = indexTip.y * window.innerHeight;
 
@@ -246,14 +240,13 @@
         }
     }
 
+    // แก้ไขจุดบกพร่องสำคัญ: สั่งยิงคำสั่งย้ายคำตรงๆ ตามประเภทข้อมูล (ไม่จำลองการคลิกปุ่มแต่อย่างใด)
     function checkAirHover(x, y) {
-        // ดึงกล่องเป้าหมายทั้งหมดในขณะนั้น
-        const targets = document.querySelectorAll('.word-block, .interactive-btn');
+        const targets = document.querySelectorAll('.word-block, .interactive-btn, #btn-start');
         let foundTarget = null;
 
         for (let target of targets) {
             const rect = target.getBoundingClientRect();
-            // ตรวจสอบพื้นที่การขอบชนของพิกัดจริง
             if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
                 foundTarget = target;
                 break;
@@ -268,7 +261,15 @@
                 hoverStartTime = Date.now();
             } else {
                 if (Date.now() - hoverStartTime >= HOVER_DURATION) {
-                    hoverTarget.click(); // สั่งย้ายคำศัพท์ทันที
+                    // หากชี้ค้างไว้จนครบเวลา เช็กว่าเป็นกล่องคำศัพท์ใช่ไหม
+                    if (hoverTarget.classList.contains('word-block')) {
+                        const wordType = hoverTarget.getAttribute('data-type');
+                        const wordIndex = parseInt(hoverTarget.getAttribute('data-index'));
+                        moveWord(wordIndex, wordType); // เรียกสลับกล่องทันที
+                    } else {
+                        // ถ้าเป็นปุ่มทั่วไปให้สั่งรันฟังก์ชันคลิกปกติ
+                        hoverTarget.click();
+                    }
                     cancelHover();
                 }
             }
@@ -307,6 +308,7 @@
         renderWords();
     }
 
+    // ปรับปรุงการวาดกล่องคำศัพท์: ใส่ข้อมูลพิกัด Index และประเภทกล่องเพื่อให้ AI ชี้จับย้ายคำได้โดยตรง
     function renderWords() {
         const poolZone = document.getElementById('word-pool');
         const dropZone = document.getElementById('drop-zone');
@@ -318,6 +320,8 @@
             const block = document.createElement('div');
             block.className = 'word-block';
             block.innerText = word;
+            block.setAttribute('data-type', 'select');
+            block.setAttribute('data-index', index);
             block.onclick = () => moveWord(index, 'select');
             poolZone.appendChild(block);
         });
@@ -329,6 +333,8 @@
             block.style.borderColor = '#4ade80';
             block.style.color = '#166534';
             block.innerText = word;
+            block.setAttribute('data-type', 'deselect');
+            block.setAttribute('data-index', index);
             block.onclick = () => moveWord(index, 'deselect');
             dropZone.appendChild(block);
         });
@@ -336,11 +342,15 @@
 
     function moveWord(index, action) {
         if (action === 'select') {
-            const word = poolWords.splice(index, 1)[0];
-            selectedWords.push(word);
+            if (poolWords[index] !== undefined) {
+                const word = poolWords.splice(index, 1)[0];
+                selectedWords.push(word);
+            }
         } else {
-            const word = selectedWords.splice(index, 1)[0];
-            poolWords.push(word);
+            if (selectedWords[index] !== undefined) {
+                const word = selectedWords.splice(index, 1)[0];
+                poolWords.push(word);
+            }
         }
         renderWords();
     }
