@@ -134,4 +134,261 @@
             <h3>📊 อันดับนักเรียนคนเก่ง (Top 5)</h3>
             <table class="leaderboard-table">
                 <thead><tr style="background:#fef08a;"><th>อันดับ</th><th>ชื่อ</th><th>คะแนน</th></tr></thead>
-                <tbody id="leaderboard
+                <tbody id="leaderboard-body"></tbody>
+            </table><br>
+            <button id="btn-restart" class="interactive-btn" onclick="location.reload()">เล่นใหม่อีกครั้ง 🔄</button>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const questions = [
+        { correct: ["I", "am", "a", "student."], scrambled: ["student.", "am", "I", "a"] },
+        { correct: ["She", "is", "a", "doctor."], scrambled: ["is", "doctor.", "a", "She"] },
+        { correct: ["They", "are", "happy."], scrambled: ["happy.", "They", "are"] },
+        { correct: ["It", "is", "a", "cat."], scrambled: ["a", "cat.", "It", "is"] },
+        { correct: ["We", "are", "in", "the", "classroom."], scrambled: ["classroom.", "are", "the", "We", "in"] },
+        { correct: ["The", "dog", "is", "very", "big."], scrambled: ["very", "dog", "big.", "The", "is"] },
+        { correct: ["You", "are", "a", "good", "boy."], scrambled: ["boy.", "good", "a", "You", "are"] },
+        { correct: ["He", "likes", "to", "play", "football."], scrambled: ["play", "football.", "He", "likes", "to"] },
+        { correct: ["What", "is", "your", "name?"], scrambled: ["name?", "What", "your", "is"] },
+        { correct: ["This", "is", "my", "new", "pen."], scrambled: ["new", "This", "my", "pen.", "is"] }
+    ];
+
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let playerName = "";
+    let selectedWords = [];
+    let poolWords = [];
+    let gameActive = false;
+
+    const videoElement = document.getElementById('webcam');
+    const pointerElement = document.getElementById('air-pointer');
+
+    let hoverTarget = null;
+    let hoverStartTime = 0;
+    const HOVER_DURATION = 1000; 
+
+    window.onload = () => {
+        initCamera();
+    };
+
+    // ปรับโครงสร้างเปิดกล้องพื้นฐานให้พร้อมส่งเข้า MediaPipe
+    async function initCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, facingMode: "user" },
+                audio: false
+            });
+            videoElement.srcObject = stream;
+            videoElement.onloadedmetadata = () => {
+                setupMediaPipe();
+            };
+        } catch (err) {
+            console.error("เข้าถึงกล้องไม่ได้: ", err);
+        }
+    }
+
+    // แก้ไขชุดลูป AI: ใช้การควบคุมเฟรมของ MediaPipe ตัวตรงโดยไม่ใช้คลาสเสริมที่ตีกันเอง
+    function setupMediaPipe() {
+        if (typeof Hands === 'undefined') return;
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults(onHandResults);
+
+        // ดึงลูปเฟรมวิดีโอแบบเสถียร
+        async function sendFrame() {
+            if (!videoElement.paused && !videoElement.ended) {
+                try {
+                    await hands.send({ image: videoElement });
+                } catch (e) {
+                    console.log("AI frame skip");
+                }
+            }
+            requestAnimationFrame(sendFrame);
+        }
+        
+        videoElement.play().then(() => {
+            sendFrame();
+        });
+    }
+
+    function onHandResults(results) {
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+            const indexTip = landmarks[8]; // ปลายนิ้วชี้
+
+            // แก้ไขปัญหาการ Mirror พิกัดนิ้วชี้: คำนวณแบบกลับด้านกระจกเงาให้สอดคล้องกับภาพหน้าจอ
+            const screenX = (1 - indexTip.x) * window.innerWidth;
+            const screenY = indexTip.y * window.innerHeight;
+
+            pointerElement.style.display = 'block';
+            pointerElement.style.left = `${screenX}px`;
+            pointerElement.style.top = `${screenY}px`;
+
+            if (gameActive) {
+                checkAirHover(screenX, screenY);
+            }
+        } else {
+            pointerElement.style.display = 'none';
+            cancelHover();
+        }
+    }
+
+    function checkAirHover(x, y) {
+        // ดึงกล่องเป้าหมายทั้งหมดในขณะนั้น
+        const targets = document.querySelectorAll('.word-block, .interactive-btn');
+        let foundTarget = null;
+
+        for (let target of targets) {
+            const rect = target.getBoundingClientRect();
+            // ตรวจสอบพื้นที่การขอบชนของพิกัดจริง
+            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                foundTarget = target;
+                break;
+            }
+        }
+
+        if (foundTarget) {
+            if (hoverTarget !== foundTarget) {
+                cancelHover();
+                hoverTarget = foundTarget;
+                hoverTarget.classList.add('hovered');
+                hoverStartTime = Date.now();
+            } else {
+                if (Date.now() - hoverStartTime >= HOVER_DURATION) {
+                    hoverTarget.click(); // สั่งย้ายคำศัพท์ทันที
+                    cancelHover();
+                }
+            }
+        } else {
+            cancelHover();
+        }
+    }
+
+    function cancelHover() {
+        if (hoverTarget) {
+            hoverTarget.classList.remove('hovered');
+            hoverTarget = null;
+        }
+    }
+
+    function startGame() {
+        const nameInput = document.getElementById('player-name').value.trim();
+        playerName = nameInput || "นักเรียนไร้นาม";
+        
+        document.getElementById('start-screen').classList.remove('active');
+        document.getElementById('game-screen').classList.add('active');
+        
+        gameActive = true;
+        loadQuestion();
+    }
+
+    function loadQuestion() {
+        const q = questions[currentQuestionIndex];
+        document.getElementById('progress-text').innerText = `ข้อที่: ${currentQuestionIndex + 1}/${questions.length}`;
+        document.getElementById('feedback').innerText = "";
+        document.getElementById('feedback').style.color = "black";
+        
+        poolWords = [...q.scrambled];
+        selectedWords = [];
+        
+        renderWords();
+    }
+
+    function renderWords() {
+        const poolZone = document.getElementById('word-pool');
+        const dropZone = document.getElementById('drop-zone');
+        
+        poolZone.innerHTML = "";
+        dropZone.innerHTML = "";
+
+        poolWords.forEach((word, index) => {
+            const block = document.createElement('div');
+            block.className = 'word-block';
+            block.innerText = word;
+            block.onclick = () => moveWord(index, 'select');
+            poolZone.appendChild(block);
+        });
+
+        selectedWords.forEach((word, index) => {
+            const block = document.createElement('div');
+            block.className = 'word-block';
+            block.style.background = '#bbf7d0';
+            block.style.borderColor = '#4ade80';
+            block.style.color = '#166534';
+            block.innerText = word;
+            block.onclick = () => moveWord(index, 'deselect');
+            dropZone.appendChild(block);
+        });
+    }
+
+    function moveWord(index, action) {
+        if (action === 'select') {
+            const word = poolWords.splice(index, 1)[0];
+            selectedWords.push(word);
+        } else {
+            const word = selectedWords.splice(index, 1)[0];
+            poolWords.push(word);
+        }
+        renderWords();
+    }
+
+    function checkAnswer() {
+        const q = questions[currentQuestionIndex];
+        const isCorrect = JSON.stringify(selectedWords) === JSON.stringify(q.correct);
+        const feedback = document.getElementById('feedback');
+
+        if (isCorrect) {
+            score += 10;
+            feedback.innerText = "🎉 ถูกต้องยอดเยี่ยม! (+10 คะแนน)";
+            feedback.style.color = "#16a34a";
+            document.getElementById('score-text').innerText = `คะแนน: ${score}`;
+            
+            setTimeout(() => {
+                currentQuestionIndex++;
+                if (currentQuestionIndex < questions.length) {
+                    loadQuestion();
+                } else {
+                    endGame();
+                }
+            }, 1500);
+        } else {
+            feedback.innerText = "❌ ยังไม่ถูกนะจ๊ะ ลองเรียงใหม่อีกที!";
+            feedback.style.color = "#dc2626";
+        }
+    }
+
+    function endGame() {
+        gameActive = false;
+        document.getElementById('game-screen').classList.remove('active');
+        document.getElementById('end-screen').classList.add('active');
+        document.getElementById('final-score-display').innerText = `${score} คะแนน`;
+
+        let leaderboard = JSON.parse(localStorage.getItem('english_leaderboard')) || [];
+        leaderboard.push({ name: playerName, score: score });
+        leaderboard.sort((a, b) => b.score - a.score);
+        leaderboard = leaderboard.slice(0, 5);
+        localStorage.setItem('english_leaderboard', JSON.stringify(leaderboard));
+
+        const tbody = document.getElementById('leaderboard-body');
+        tbody.innerHTML = "";
+        leaderboard.forEach((entry, idx) => {
+            tbody.innerHTML += `<tr><td>${idx + 1}</td><td>${entry.name}</td><td>${entry.score}</td></tr>`;
+        });
+    }
+</script>
+
+</body>
+</html>
