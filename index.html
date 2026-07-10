@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Air-Gesture English Game</title>
     
+    <!-- โหลดไลบรารีตรวจจับมือของ MediaPipe -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
@@ -27,10 +28,10 @@
         .camera-box {
             position: relative; width: 320px; height: 240px;
             margin: 0 auto 15px auto; border-radius: 12px;
-            overflow: hidden; border: 3px solid #38bdf8; transform: scaleX(-1);
+            overflow: hidden; border: 3px solid #38bdf8;
         }
-        #webcam { width: 100%; height: 100%; object-fit: cover; }
-        #hand-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        #webcam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        #hand-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
 
         /* ตัวชี้เป้าสีแดงขยับตามนิ้วชี้ในอากาศ */
         #air-pointer {
@@ -79,13 +80,13 @@
 <div class="game-container">
     
     <div class="camera-box" id="cam-area" style="display:none;">
-        <video id="webcam" autoplay playsinline></video>
+        <video id="webcam" autoplay playsinline muted></video>
         <canvas id="hand-canvas"></canvas>
     </div>
 
     <div id="start-screen" class="screen active">
         <h1 style="color: #0284c7;">🖐️ เกมเรียงประโยค "เอานิ้วจิ้มอากาศ"</h1>
-        <p style="color: #64748b;">ไม่ต้องใช้แว่น VR! แค่ยื่นนิ้วชี้มาหน้ากล้อง แล้วขยับแทนเมาส์ได้เลย</p>
+        <p style="color: #64748b;">ไม่ต้องใช้เมาส์! แค่ยื่นนิ้วชี้มาหน้ากล้อง แล้วเลื่อนจุดสีแดงแทนเมาส์ได้เลย</p>
         <input type="text" id="player-name" placeholder="พิมพ์ชื่อนักเรียนตรงนี้..." style="padding:10px; text-align:center; border-radius:8px; border:2px solid #cbd5e1; width:70%; font-size:16px; margin-bottom:15px;"><br>
         <button id="btn-start" onclick="startGame()">เปิดกล้องและเริ่มเล่น 🚀</button>
     </div>
@@ -95,7 +96,7 @@
             <span id="progress-text">ข้อที่: 1/10</span>
             <span id="score-text">คะแนน: 0</span>
         </div>
-        <p style="color: #64748b; font-size:12px; margin:0;">💡 วิธีเล่น: เลื่อนจุดสีแดงไปค้างไว้บนกล่องคำศัพท์ 1 วินาที เพื่อย้ายคำ</p>
+        <p style="color: #64748b; font-size:12px; margin:0;">💡 วิธีเล่น: เลื่อนจุดสีแดงไปค้างไว้บนกล่องคำศัพท์ 1 วินาที เพื่อย้ายคำ (หรือใช้เมาส์คลิกปกติได้)</p>
         <div class="word-pool" id="word-pool"></div>
         <div class="drop-zone" id="drop-zone"></div>
         <div id="feedback"></div>
@@ -104,7 +105,7 @@
 
     <div id="end-screen" class="screen">
         <h1 style="color: #16a34a;">🏆 เก่งมาก จบเกมแล้ว! 🏆</h1>
-        <h2 id="final-score">0 คะแนน</h2>
+        <h2 id="final-score-display">0 คะแนน</h2>
         <h3>📊 อันดับนักเรียนคนเก่ง (Top 5)</h3>
         <table class="leaderboard-table">
             <thead><tr style="background:#fef08a;"><th>อันดับ</th><th>ชื่อ</th><th>คะแนน</th></tr></thead>
@@ -115,6 +116,7 @@
 </div>
 
 <script>
+    // คำถามครบถ้วน 10 ข้อตามหลักสูตรภาษาอังกฤษ ป.3
     const questions = [
         { correct: ["I", "am", "a", "student."], scrambled: ["student.", "am", "I", "a"] },
         { correct: ["She", "is", "a", "doctor."], scrambled: ["is", "doctor.", "a", "She"] },
@@ -122,4 +124,224 @@
         { correct: ["It", "is", "a", "cat."], scrambled: ["a", "cat.", "It", "is"] },
         { correct: ["We", "are", "in", "the", "classroom."], scrambled: ["classroom.", "are", "the", "We", "in"] },
         { correct: ["The", "dog", "is", "very", "big."], scrambled: ["very", "dog", "big.", "The", "is"] },
-        { correct: ["You", "are", "a", "good", "boy."], scrambled:
+        { correct: ["You", "are", "a", "good", "boy."], scrambled: ["boy.", "good", "a", "You", "are"] },
+        { correct: ["He", "likes", "to", "play", "football."], scrambled: ["play", "football.", "He", "likes", "to"] },
+        { correct: ["What", "is", "your", "name?"], scrambled: ["name?", "What", "your", "is"] },
+        { correct: ["This", "is", "my", "new", "pen."], scrambled: ["new", "This", "my", "pen.", "is"] }
+    ];
+
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let playerName = "";
+    let selectedWords = [];
+    let poolWords = [];
+
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('hand-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const pointerElement = document.getElementById('air-pointer');
+
+    let hoverTarget = null;
+    let hoverStartTime = 0;
+    const HOVER_DURATION = 1000; // ค้างไว้ 1 วินาทีเพื่อเลือก
+
+    // ฟังก์ชันเริ่มต้นกล้องเว็บแคมและ AI
+    function initCameraAndAI() {
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults(onHandResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 320,
+            height: 240
+        });
+        
+        camera.start().then(() => {
+            console.log("กล้องทำงานสำเร็จ");
+        }).catch(err => {
+            console.error("ไม่สามารถเข้าถึงกล้องได้: ", err);
+            alert("ไม่สามารถเปิดกล้องได้ แต่สามารถใช้เมาส์หรือการทัชเล่นแทนได้ครับ");
+        });
+    }
+
+    // ฟังก์ชันประมวลผลตำแหน่งนิ้วชี้
+    function onHandResults(results) {
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        
+        // วาดเส้นมือบน Canvas เล็กๆ
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+            const indexTip = landmarks[8]; // จุดปลายนิ้วชี้
+
+            // แสดงจุดสีแดงจำลองบนจอภาพใหญ่ตามอัตราส่วนหน้าจอ
+            const screenX = indexTip.x * window.innerWidth;
+            const screenY = indexTip.y * window.innerHeight;
+
+            pointerElement.style.display = 'block';
+            pointerElement.style.left = `${screenX}px`;
+            pointerElement.style.top = `${screenY}px`;
+
+            checkAirHover(screenX, screenY);
+        } else {
+            pointerElement.style.display = 'none';
+            cancelHover();
+        }
+    }
+
+    // ตรวจจับว่าจุดสีแดงลอยอยู่บนปุ่มหรือคำศัพท์ใดๆ หรือไม่
+    function checkAirHover(x, y) {
+        const element = document.elementFromPoint(x, y);
+        if (!element) return;
+
+        if (element.classList.contains('word-block') || element.tagName === 'BUTTON') {
+            if (hoverTarget !== element) {
+                cancelHover();
+                hoverTarget = element;
+                hoverTarget.classList.add('hovered');
+                hoverStartTime = Date.now();
+            } else {
+                // หากค้างครบกำหนดเวลา ให้ทำการจำลองการคลิก
+                if (Date.now() - hoverStartTime >= HOVER_DURATION) {
+                    element.click();
+                    cancelHover();
+                }
+            }
+        } else {
+            cancelHover();
+        }
+    }
+
+    function cancelHover() {
+        if (hoverTarget) {
+            hoverTarget.classList.remove('hovered');
+            hoverTarget = null;
+        }
+    }
+
+    // ฟังก์ชันเปลี่ยนหน้าจอเมื่อกดเริ่มเกม
+    function startGame() {
+        const nameInput = document.getElementById('player-name').value.trim();
+        playerName = nameInput || "นักเรียนไร้นาม";
+        
+        document.getElementById('start-screen').classList.remove('active');
+        document.getElementById('cam-area').style.display = 'block';
+        document.getElementById('game-screen').classList.add('active');
+        
+        initCameraAndAI();
+        loadQuestion();
+    }
+
+    // โหลดโจทย์คำถาม
+    function loadQuestion() {
+        const q = questions[currentQuestionIndex];
+        document.getElementById('progress-text').innerText = `ข้อที่: ${currentQuestionIndex + 1}/${questions.length}`;
+        document.getElementById('feedback').innerText = "";
+        document.getElementById('feedback').style.color = "black";
+        
+        poolWords = [...q.scrambled];
+        selectedWords = [];
+        
+        renderWords();
+    }
+
+    // วาดกล่องคำศัพท์
+    function renderWords() {
+        const poolZone = document.getElementById('word-pool');
+        const dropZone = document.getElementById('drop-zone');
+        
+        poolZone.innerHTML = "";
+        dropZone.innerHTML = "";
+
+        poolWords.forEach((word, index) => {
+            const block = document.createElement('div');
+            block.className = 'word-block';
+            block.innerText = word;
+            block.onclick = () => moveWord(index, 'select');
+            poolZone.appendChild(block);
+        });
+
+        selectedWords.forEach((word, index) => {
+            const block = document.createElement('div');
+            block.className = 'word-block';
+            block.style.background = '#bbf7d0';
+            block.style.borderColor = '#4ade80';
+            block.style.color = '#166534';
+            block.innerText = word;
+            block.onclick = () => moveWord(index, 'deselect');
+            dropZone.appendChild(block);
+        });
+    }
+
+    // ย้ายคำศัพท์ไปมา
+    function moveWord(index, action) {
+        if (action === 'select') {
+            const word = poolWords.splice(index, 1)[0];
+            selectedWords.push(word);
+        } else {
+            const word = selectedWords.splice(index, 1)[0];
+            poolWords.push(word);
+        }
+        renderWords();
+    }
+
+    // ตรวจคำตอบ
+    function checkAnswer() {
+        const q = questions[currentQuestionIndex];
+        const isCorrect = JSON.stringify(selectedWords) === JSON.stringify(q.correct);
+        const feedback = document.getElementById('feedback');
+
+        if (isCorrect) {
+            score += 10;
+            feedback.innerText = "🎉 ถูกต้องยอดเยี่ยม! (+10 คะแนน)";
+            feedback.style.color = "#16a34a";
+            document.getElementById('score-text').innerText = `คะแนน: ${score}`;
+            
+            setTimeout(() => {
+                currentQuestionIndex++;
+                if (currentQuestionIndex < questions.length) {
+                    loadQuestion();
+                } else {
+                    endGame();
+                }
+            }, 1500);
+        } else {
+            feedback.innerText = "❌ ยังไม่ถูกนะจ๊ะ ลองเรียงใหม่อีกที! (ลบคำออกแล้วลองใหม่)";
+            feedback.style.color = "#dc2626";
+        }
+    }
+
+    // จบเกมและบันทึกคะแนนลง Leaderboard Local
+    function endGame() {
+        document.getElementById('game-screen').classList.remove('active');
+        document.getElementById('cam-area').style.display = 'none';
+        document.getElementById('end-screen').classList.add('active');
+        document.getElementById('final-score-display').innerText = `${score} คะแนน`;
+
+        let leaderboard = JSON.parse(localStorage.getItem('english_leaderboard')) || [];
+        leaderboard.push({ name: playerName, score: score });
+        leaderboard.sort((a, b) => b.score - a.score);
+        leaderboard = leaderboard.slice(0, 5);
+        localStorage.setItem('english_leaderboard', JSON.stringify(leaderboard));
+
+        const tbody = document.getElementById('leaderboard-body');
+        tbody.innerHTML = "";
+        leaderboard.forEach((entry, idx) => {
+            tbody.innerHTML += `<tr><td>${idx + 1}</td><td>${entry.name}</td><td>${entry.score}</td></tr>`;
+        });
+    }
+</script>
+
+</body>
+</html>
